@@ -26,11 +26,12 @@ function RequestTrip() {
   const [success, setSuccess] = useState("");
   const [error, setError] = useState("");
 
-  // CHECK LOGGED-IN USER
+  // CHECK LOGGED-IN USER AND TOKEN
   useEffect(() => {
     const savedUser = localStorage.getItem("user");
+    const token = localStorage.getItem("access_token");
 
-    if (!savedUser) {
+    if (!savedUser || !token) {
       navigate("/login");
       return;
     }
@@ -47,6 +48,7 @@ function RequestTrip() {
     } catch (error) {
       console.error("Invalid user data:", error);
       localStorage.removeItem("user");
+      localStorage.removeItem("access_token");
       navigate("/login");
     }
   }, [navigate]);
@@ -55,9 +57,7 @@ function RequestTrip() {
   useEffect(() => {
     const fetchLocations = async () => {
       try {
-        const response = await fetch(
-          `${API_BASE_URL}/locations`
-        );
+        const response = await fetch(`${API_BASE_URL}/locations`);
 
         if (!response.ok) {
           throw new Error("Failed to load locations.");
@@ -205,7 +205,6 @@ function RequestTrip() {
 
         setPickupPoints(data);
 
-        // Automatically select the primary pickup point.
         const primaryPoint = data.find(
           (point) => point.is_primary === true
         );
@@ -260,8 +259,13 @@ function RequestTrip() {
     setError("");
     setSuccess("");
 
-    if (!user) {
-      setError("You must be logged in to request a trip.");
+    const token = localStorage.getItem("access_token");
+
+    if (!user || !token) {
+      setError("Your session has expired. Please log in again.");
+      localStorage.removeItem("user");
+      localStorage.removeItem("access_token");
+      navigate("/login");
       return;
     }
 
@@ -286,23 +290,26 @@ function RequestTrip() {
     setLoading(true);
 
     try {
-      const response = await fetch(
-        `${API_BASE_URL}/trips/`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            user_id: user.id,
-            route_id: selectedRoute.id,
-            pickup_point_id: Number(form.pickup_point_id),
-            fare_period_id: Number(form.fare_period_id),
-          }),
-        }
-      );
+      const response = await fetch(`${API_BASE_URL}/trips/`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          route_id: selectedRoute.id,
+          pickup_point_id: Number(form.pickup_point_id),
+          fare_period_id: Number(form.fare_period_id),
+        }),
+      });
 
       const data = await response.json();
+
+      if (response.status === 401 || response.status === 403) {
+        throw new Error(
+          "Your session is invalid or expired. Please log in again."
+        );
+      }
 
       if (!response.ok) {
         throw new Error(data.detail || "Trip request failed.");
@@ -325,22 +332,28 @@ function RequestTrip() {
     } catch (error) {
       console.error(error);
       setError(error.message);
+
+      if (
+        error.message.includes("session is invalid") ||
+        error.message.includes("expired")
+      ) {
+        localStorage.removeItem("user");
+        localStorage.removeItem("access_token");
+        navigate("/login");
+      }
     } finally {
       setLoading(false);
     }
   };
 
-  // WAIT FOR USER
   if (!user) {
     return null;
   }
 
   return (
     <section className="min-h-screen bg-gray-50">
-
       <header className="bg-white shadow-sm">
         <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
-
           <Link
             to="/dashboard"
             className="text-2xl font-bold text-green-600"
@@ -354,12 +367,10 @@ function RequestTrip() {
           >
             ← Dashboard
           </Link>
-
         </div>
       </header>
 
       <main className="max-w-3xl mx-auto px-6 py-10">
-
         <div className="mb-8">
           <h1 className="text-3xl font-bold text-gray-900">
             Request a Trip
@@ -371,10 +382,7 @@ function RequestTrip() {
         </div>
 
         <div className="bg-white rounded-2xl shadow-md p-6 md:p-8">
-
           <form onSubmit={handleSubmit}>
-
-            {/* From */}
             <div className="mb-5">
               <label className="block text-sm font-semibold text-gray-700 mb-2">
                 From
@@ -386,9 +394,7 @@ function RequestTrip() {
                 onChange={handleChange}
                 className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-green-500"
               >
-                <option value="">
-                  Select starting location
-                </option>
+                <option value="">Select starting location</option>
 
                 {locations.map((location) => (
                   <option key={location.id} value={location.name}>
@@ -398,7 +404,6 @@ function RequestTrip() {
               </select>
             </div>
 
-            {/* To */}
             <div className="mb-5">
               <label className="block text-sm font-semibold text-gray-700 mb-2">
                 To
@@ -410,9 +415,7 @@ function RequestTrip() {
                 onChange={handleChange}
                 className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-green-500"
               >
-                <option value="">
-                  Select destination
-                </option>
+                <option value="">Select destination</option>
 
                 {locations
                   .filter(
@@ -427,14 +430,12 @@ function RequestTrip() {
               </select>
             </div>
 
-            {/* Route Loading */}
             {routesLoading && (
               <p className="text-sm text-gray-500 mb-5">
                 Finding available routes...
               </p>
             )}
 
-            {/* Transport */}
             {routes.length > 0 && (
               <div className="mb-5">
                 <label className="block text-sm font-semibold text-gray-700 mb-2">
@@ -460,7 +461,6 @@ function RequestTrip() {
               </div>
             )}
 
-            {/* Pickup Point */}
             {form.transport && (
               <div className="mb-5">
                 <label className="block text-sm font-semibold text-gray-700 mb-2">
@@ -480,9 +480,7 @@ function RequestTrip() {
                       disabled={pickupPoints.length === 0}
                       className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-green-500 disabled:bg-gray-100"
                     >
-                      <option value="">
-                        Select pickup point
-                      </option>
+                      <option value="">Select pickup point</option>
 
                       {pickupPoints.map((point) => (
                         <option key={point.id} value={point.id}>
@@ -505,7 +503,6 @@ function RequestTrip() {
               </div>
             )}
 
-            {/* Fare Period */}
             {form.transport && (
               <div className="mb-5">
                 <label className="block text-sm font-semibold text-gray-700 mb-2">
@@ -527,7 +524,6 @@ function RequestTrip() {
               </div>
             )}
 
-            {/* Selected Fare */}
             {form.transport && form.fare_period_id && (
               <div className="mb-6 bg-green-50 border border-green-200 rounded-xl p-4">
                 <p className="text-sm text-gray-600">
@@ -544,21 +540,18 @@ function RequestTrip() {
               </div>
             )}
 
-            {/* Error */}
             {error && (
               <div className="mb-5 p-4 rounded-xl bg-red-50 text-red-600 text-sm">
                 {error}
               </div>
             )}
 
-            {/* Success */}
             {success && (
               <div className="mb-5 p-4 rounded-xl bg-green-50 text-green-700 text-sm">
                 {success}
               </div>
             )}
 
-            {/* Submit */}
             <button
               type="submit"
               disabled={loading || pickupLoading}
@@ -566,13 +559,9 @@ function RequestTrip() {
             >
               {loading ? "Requesting Trip..." : "Request Trip"}
             </button>
-
           </form>
-
         </div>
-
       </main>
-
     </section>
   );
 }

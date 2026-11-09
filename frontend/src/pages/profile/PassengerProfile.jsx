@@ -7,6 +7,8 @@ function PassengerProfile() {
   const navigate = useNavigate();
 
   const [user, setUser] = useState(null);
+  const [token, setToken] = useState("");
+
   const [form, setForm] = useState({
     full_name: "",
     phone: "",
@@ -19,11 +21,14 @@ function PassengerProfile() {
   const [success, setSuccess] = useState("");
   const [error, setError] = useState("");
 
-  // CHECK LOGGED-IN USER
+  // CHECK LOGGED-IN USER AND TOKEN
   useEffect(() => {
     const savedUser = localStorage.getItem("user");
+    const savedToken = localStorage.getItem("access_token");
 
-    if (!savedUser) {
+    if (!savedUser || !savedToken) {
+      localStorage.removeItem("user");
+      localStorage.removeItem("access_token");
       navigate("/login");
       return;
     }
@@ -37,16 +42,26 @@ function PassengerProfile() {
       }
 
       setUser(parsedUser);
+      setToken(savedToken);
+
     } catch (error) {
       console.error("Invalid user data:", error);
       localStorage.removeItem("user");
+      localStorage.removeItem("access_token");
       navigate("/login");
     }
   }, [navigate]);
 
+  // HANDLE EXPIRED OR INVALID SESSION
+  const handleSessionExpired = () => {
+    localStorage.removeItem("user");
+    localStorage.removeItem("access_token");
+    navigate("/login");
+  };
+
   // LOAD PROFILE
   useEffect(() => {
-    if (!user) return;
+    if (!user || !token) return;
 
     const fetchProfile = async () => {
       setLoading(true);
@@ -54,10 +69,20 @@ function PassengerProfile() {
 
       try {
         const response = await fetch(
-          `${API_BASE_URL}/profile/${user.id}`
+          `${API_BASE_URL}/profile/${user.id}`,
+          {
+            headers: {
+              Authorization: `Bearer ${token}`,
+            },
+          }
         );
 
         const data = await response.json();
+
+        if (response.status === 401 || response.status === 403) {
+          handleSessionExpired();
+          return;
+        }
 
         if (!response.ok) {
           throw new Error(
@@ -94,7 +119,7 @@ function PassengerProfile() {
     };
 
     fetchProfile();
-  }, [user?.id]);
+  }, [user?.id, token]);
 
   // HANDLE FORM CHANGE
   const handleChange = (e) => {
@@ -135,15 +160,21 @@ function PassengerProfile() {
           method: "PUT",
           headers: {
             "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
           },
           body: JSON.stringify({
-            full_name: form.full_name,
-            phone: form.phone,
+            full_name: form.full_name.trim(),
+            phone: form.phone.trim(),
           }),
         }
       );
 
       const data = await response.json();
+
+      if (response.status === 401 || response.status === 403) {
+        handleSessionExpired();
+        return;
+      }
 
       if (!response.ok) {
         throw new Error(

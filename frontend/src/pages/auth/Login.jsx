@@ -34,19 +34,16 @@ function Login() {
     setLoading(true);
 
     try {
-      const response = await fetch(
-        `${API_BASE_URL}/auth/login`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            email: form.email,
-            password: form.password,
-          }),
-        }
-      );
+      const response = await fetch(`${API_BASE_URL}/auth/login`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          email: form.email,
+          password: form.password,
+        }),
+      });
 
       const data = await response.json();
 
@@ -54,19 +51,17 @@ function Login() {
         throw new Error(data.detail || "Login failed.");
       }
 
-      console.log("Login successful:", data);
+      // Save the authentication token
+      localStorage.setItem("access_token", data.access_token);
 
-      // Save logged-in user
-      localStorage.setItem(
-        "user",
-        JSON.stringify(data.user)
-      );
+      // Save the logged-in user
+      localStorage.setItem("user", JSON.stringify(data.user));
 
-      // Go to passenger dashboard
+      // Navigate to dashboard
       navigate("/dashboard");
 
     } catch (error) {
-      console.error(error);
+      console.error("Login error:", error);
       setError(error.message);
     } finally {
       setLoading(false);
@@ -108,6 +103,7 @@ function Login() {
                 value={form.email}
                 onChange={handleChange}
                 placeholder="Enter your email"
+                required
                 className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-green-500"
               />
             </div>
@@ -123,6 +119,7 @@ function Login() {
                 value={form.password}
                 onChange={handleChange}
                 placeholder="Enter your password"
+                required
                 className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-green-500"
               />
             </div>

@@ -41,14 +41,39 @@ function MyTrips() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
+  // HANDLE EXPIRED SESSION
+  const handleSessionExpired = () => {
+    localStorage.removeItem("user");
+    localStorage.removeItem("access_token");
+    navigate("/login");
+  };
+
+  // FETCH PASSENGER TRIPS
   const fetchTrips = async (userId) => {
+    const token = localStorage.getItem("access_token");
+
+    if (!token) {
+      handleSessionExpired();
+      return;
+    }
+
     try {
       setLoading(true);
       setError("");
 
       const response = await fetch(
-        `${API_BASE_URL}/trips/passenger/${userId}`
+        `${API_BASE_URL}/trips/passenger/${userId}`,
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        }
       );
+
+      if (response.status === 401 || response.status === 403) {
+        handleSessionExpired();
+        return;
+      }
 
       if (!response.ok) {
         throw new Error("Failed to load your trips.");
@@ -69,11 +94,13 @@ function MyTrips() {
     }
   };
 
+  // CHECK LOGGED-IN USER
   useEffect(() => {
     const savedUser = localStorage.getItem("user");
+    const token = localStorage.getItem("access_token");
 
-    if (!savedUser) {
-      navigate("/login");
+    if (!savedUser || !token) {
+      handleSessionExpired();
       return;
     }
 
@@ -94,6 +121,7 @@ function MyTrips() {
     } catch (parseError) {
       console.error("Invalid user data:", parseError);
       localStorage.removeItem("user");
+      localStorage.removeItem("access_token");
       navigate("/login");
     }
   }, [navigate]);

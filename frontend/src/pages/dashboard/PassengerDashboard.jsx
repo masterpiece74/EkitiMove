@@ -1,3 +1,4 @@
+
 import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 
@@ -7,8 +8,11 @@ function PassengerDashboard() {
 
   useEffect(() => {
     const savedUser = localStorage.getItem("user");
+    const savedToken = localStorage.getItem("access_token");
 
-    if (!savedUser) {
+    if (!savedUser || !savedToken) {
+      localStorage.removeItem("user");
+      localStorage.removeItem("access_token");
       navigate("/login");
       return;
     }
@@ -16,22 +20,25 @@ function PassengerDashboard() {
     try {
       const parsedUser = JSON.parse(savedUser);
 
-      // Only passengers can access this dashboard
       if (parsedUser.role !== "Passenger") {
         navigate("/");
         return;
       }
 
       setUser(parsedUser);
+
     } catch (error) {
       console.error("Invalid user data:", error);
       localStorage.removeItem("user");
+      localStorage.removeItem("access_token");
       navigate("/login");
     }
   }, [navigate]);
 
+  // LOGOUT
   const handleLogout = () => {
     localStorage.removeItem("user");
+    localStorage.removeItem("access_token");
     navigate("/login");
   };
 
@@ -83,9 +90,6 @@ function PassengerDashboard() {
           {/* Request Trip */}
           <div className="bg-white rounded-2xl shadow-md p-6">
 
-            <div className="text-3xl mb-4">
-            </div>
-
             <h2 className="text-xl font-bold text-gray-900">
               Request a Trip
             </h2>
@@ -105,10 +109,6 @@ function PassengerDashboard() {
 
           {/* My Trips */}
           <div className="bg-white rounded-2xl shadow-md p-6">
-
-            <div className="text-3xl mb-4">
-              
-            </div>
 
             <h2 className="text-xl font-bold text-gray-900">
               My Trips
@@ -162,7 +162,6 @@ function PassengerDashboard() {
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
 
-            {/* Full Name */}
             <div>
               <p className="text-sm text-gray-500">
                 Full Name
@@ -173,7 +172,6 @@ function PassengerDashboard() {
               </p>
             </div>
 
-            {/* Email */}
             <div>
               <p className="text-sm text-gray-500">
                 Email
@@ -184,14 +182,13 @@ function PassengerDashboard() {
               </p>
             </div>
 
-            {/* Phone */}
             <div>
               <p className="text-sm text-gray-500">
                 Phone
               </p>
 
               <p className="font-semibold text-gray-900 mt-1">
-                {user.phone}
+                {user.phone || "Not provided"}
               </p>
             </div>
 
@@ -206,4 +203,3 @@ function PassengerDashboard() {
 }
 
 export default PassengerDashboard;
-

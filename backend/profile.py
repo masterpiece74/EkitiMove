@@ -1,6 +1,14 @@
-from fastapi import APIRouter, HTTPException, UploadFile, File
+
+from fastapi import (
+    APIRouter,
+    HTTPException,
+    UploadFile,
+    File,
+    Depends
+)
 from pydantic import BaseModel
 from database import get_connection
+from auth import get_current_user
 import os
 import uuid
 import shutil
@@ -22,11 +30,35 @@ class ProfileUpdate(BaseModel):
 
 
 # -----------------------------------------
+# VERIFY PASSENGER ACCESS
+# -----------------------------------------
+
+def verify_passenger_access(user_id: int, current_user: dict):
+
+    if current_user["role"] != "Passenger":
+        raise HTTPException(
+            status_code=403,
+            detail="Only passengers can access this profile."
+        )
+
+    if current_user["id"] != user_id:
+        raise HTTPException(
+            status_code=403,
+            detail="You cannot access another user's profile."
+        )
+
+
+# -----------------------------------------
 # GET PASSENGER PROFILE
 # -----------------------------------------
 
 @router.get("/{user_id}")
-def get_profile(user_id: int):
+def get_profile(
+    user_id: int,
+    current_user: dict = Depends(get_current_user)
+):
+
+    verify_passenger_access(user_id, current_user)
 
     conn = get_connection()
 
@@ -79,8 +111,11 @@ def get_profile(user_id: int):
 @router.put("/{user_id}")
 def update_profile(
     user_id: int,
-    data: ProfileUpdate
+    data: ProfileUpdate,
+    current_user: dict = Depends(get_current_user)
 ):
+
+    verify_passenger_access(user_id, current_user)
 
     conn = get_connection()
 
@@ -166,16 +201,17 @@ def update_profile(
 @router.post("/{user_id}/photo")
 def upload_profile_photo(
     user_id: int,
-    file: UploadFile = File(...)
+    file: UploadFile = File(...),
+    current_user: dict = Depends(get_current_user)
 ):
+
+    verify_passenger_access(user_id, current_user)
 
     conn = get_connection()
 
     try:
 
-        # -----------------------------------------
         # CHECK USER EXISTS
-        # -----------------------------------------
 
         with conn.cursor() as cursor:
 
@@ -196,15 +232,13 @@ def upload_profile_photo(
                     detail="User not found."
                 )
 
-        # -----------------------------------------
         # CHECK IMAGE TYPE
-        # -----------------------------------------
 
-        allowed_types = [
-            "image/jpeg",
-            "image/png",
-            "image/webp"
-        ]
+        allowed_types = {
+            "image/jpeg": ".jpg",
+            "image/png": ".png",
+            "image/webp": ".webp"
+        }
 
         if file.content_type not in allowed_types:
             raise HTTPException(
@@ -212,9 +246,7 @@ def upload_profile_photo(
                 detail="Only JPG, PNG and WEBP images are allowed."
             )
 
-        # -----------------------------------------
         # CREATE UPLOAD DIRECTORY
-        # -----------------------------------------
 
         upload_directory = "uploads"
 
@@ -223,14 +255,9 @@ def upload_profile_photo(
             exist_ok=True
         )
 
-        # -----------------------------------------
         # CREATE UNIQUE FILE NAME
-        # -----------------------------------------
 
-        extension = os.path.splitext(
-            file.filename
-        )[1].lower()
-
+        extension = allowed_types[file.content_type]
         filename = f"{uuid.uuid4()}{extension}"
 
         file_path = os.path.join(
@@ -238,9 +265,7 @@ def upload_profile_photo(
             filename
         )
 
-        # -----------------------------------------
         # SAVE IMAGE
-        # -----------------------------------------
 
         with open(file_path, "wb") as buffer:
             shutil.copyfileobj(
@@ -248,9 +273,7 @@ def upload_profile_photo(
                 buffer
             )
 
-        # -----------------------------------------
         # SAVE PHOTO PATH TO DATABASE
-        # -----------------------------------------
 
         photo_url = f"/uploads/{filename}"
 
@@ -294,3 +317,4 @@ def upload_profile_photo(
 
     finally:
         conn.close()
+        file.file.close()

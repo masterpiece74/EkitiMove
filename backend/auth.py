@@ -1,4 +1,10 @@
-from fastapi import APIRouter, HTTPException
+
+import os
+from datetime import datetime, timedelta, timezone
+
+import jwt
+from fastapi import APIRouter, HTTPException, Depends
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel, EmailStr
 from pwdlib import PasswordHash
 
@@ -11,6 +17,13 @@ router = APIRouter(
 )
 
 password_hash = PasswordHash.recommended()
+
+# JWT CONFIGURATION
+JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY")
+JWT_ALGORITHM = "HS256"
+ACCESS_TOKEN_EXPIRE_MINUTES = 60
+
+security = HTTPBearer()
 
 
 # -----------------------------------------
@@ -31,13 +44,86 @@ class LoginRequest(BaseModel):
 
 
 # -----------------------------------------
+# CREATE ACCESS TOKEN
+# -----------------------------------------
+
+def create_access_token(user_id: int, role: str):
+
+    if not JWT_SECRET_KEY:
+        raise RuntimeError("JWT_SECRET_KEY is not configured.")
+
+    expires_at = datetime.now(timezone.utc) + timedelta(
+        minutes=ACCESS_TOKEN_EXPIRE_MINUTES
+    )
+
+    payload = {
+        "sub": str(user_id),
+        "role": role,
+        "exp": expires_at
+    }
+
+    token = jwt.encode(
+        payload,
+        JWT_SECRET_KEY,
+        algorithm=JWT_ALGORITHM
+    )
+
+    return token
+
+
+# -----------------------------------------
+# VERIFY ACCESS TOKEN
+# -----------------------------------------
+
+def get_current_user(
+    credentials: HTTPAuthorizationCredentials = Depends(security)
+):
+
+    if not JWT_SECRET_KEY:
+        raise HTTPException(
+            status_code=500,
+            detail="Authentication is not configured."
+        )
+
+    token = credentials.credentials
+
+    try:
+        payload = jwt.decode(
+            token,
+            JWT_SECRET_KEY,
+            algorithms=[JWT_ALGORITHM]
+        )
+
+        user_id = payload.get("sub")
+        role = payload.get("role")
+
+        if not user_id or not role:
+            raise HTTPException(
+                status_code=401,
+                detail="Invalid authentication token.",
+                headers={"WWW-Authenticate": "Bearer"}
+            )
+
+        return {
+            "id": int(user_id),
+            "role": role
+        }
+
+    except (jwt.InvalidTokenError, ValueError):
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid or expired authentication token.",
+            headers={"WWW-Authenticate": "Bearer"}
+        )
+
+
+# -----------------------------------------
 # REGISTER
 # -----------------------------------------
 
 @router.post("/register")
 def register_user(data: RegisterRequest):
 
-    # Basic validation
     if len(data.password) < 8:
         raise HTTPException(
             status_code=400,
@@ -55,7 +141,6 @@ def register_user(data: RegisterRequest):
     try:
         with conn.cursor() as cursor:
 
-            # Get role ID
             cursor.execute(
                 """
                 SELECT id
@@ -75,7 +160,6 @@ def register_user(data: RegisterRequest):
 
             role_id = role[0]
 
-            # Check if email already exists
             cursor.execute(
                 """
                 SELECT id
@@ -91,7 +175,6 @@ def register_user(data: RegisterRequest):
                     detail="Email is already registered."
                 )
 
-            # Check if phone already exists
             cursor.execute(
                 """
                 SELECT id
@@ -107,10 +190,8 @@ def register_user(data: RegisterRequest):
                     detail="Phone number is already registered."
                 )
 
-            # Hash password
             hashed_password = password_hash.hash(data.password)
 
-            # Create user
             cursor.execute(
                 """
                 INSERT INTO users (
@@ -134,14 +215,11 @@ def register_user(data: RegisterRequest):
 
             user_id = cursor.fetchone()[0]
 
-            # Create appropriate profile
             if data.role == "Passenger":
 
                 cursor.execute(
                     """
-                    INSERT INTO passenger_profiles (
-                        user_id
-                    )
+                    INSERT INTO passenger_profiles (user_id)
                     VALUES (%s)
                     """,
                     (user_id,)
@@ -151,9 +229,7 @@ def register_user(data: RegisterRequest):
 
                 cursor.execute(
                     """
-                    INSERT INTO driver_profiles (
-                        user_id
-                    )
+                    INSERT INTO driver_profiles (user_id)
                     VALUES (%s)
                     """,
                     (user_id,)
@@ -196,7 +272,6 @@ def login_user(data: LoginRequest):
     try:
         with conn.cursor() as cursor:
 
-            # Find user by email
             cursor.execute(
                 """
                 SELECT
@@ -216,7 +291,6 @@ def login_user(data: LoginRequest):
 
             user = cursor.fetchone()
 
-            # User not found
             if not user:
                 raise HTTPException(
                     status_code=401,
@@ -230,7 +304,6 @@ def login_user(data: LoginRequest):
             hashed_password = user[4]
             role = user[5]
 
-            # Verify password
             if not password_hash.verify(
                 data.password,
                 hashed_password
@@ -240,9 +313,16 @@ def login_user(data: LoginRequest):
                     detail="Invalid email or password."
                 )
 
-            # Login successful
+            access_token = create_access_token(
+                user_id=user_id,
+                role=role
+            )
+
             return {
                 "message": "Login successful.",
+                "access_token": access_token,
+                "token_type": "bearer",
+                "expires_in": ACCESS_TOKEN_EXPIRE_MINUTES * 60,
                 "user": {
                     "id": user_id,
                     "full_name": full_name,

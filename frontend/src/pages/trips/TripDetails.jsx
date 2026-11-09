@@ -42,11 +42,20 @@ function TripDetails() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
+  // HANDLE EXPIRED SESSION
+  const handleSessionExpired = () => {
+    localStorage.removeItem("user");
+    localStorage.removeItem("access_token");
+    navigate("/login");
+  };
+
+  // CHECK LOGGED-IN USER
   useEffect(() => {
     const savedUser = localStorage.getItem("user");
+    const token = localStorage.getItem("access_token");
 
-    if (!savedUser) {
-      navigate("/login");
+    if (!savedUser || !token) {
+      handleSessionExpired();
       return;
     }
 
@@ -62,12 +71,21 @@ function TripDetails() {
     } catch (parseError) {
       console.error("Invalid user data:", parseError);
       localStorage.removeItem("user");
+      localStorage.removeItem("access_token");
       navigate("/login");
     }
   }, [navigate]);
 
+  // FETCH AUTHENTICATED PASSENGER TRIP DETAILS
   useEffect(() => {
     if (!user || !tripId) return;
+
+    const token = localStorage.getItem("access_token");
+
+    if (!token) {
+      handleSessionExpired();
+      return;
+    }
 
     let cancelled = false;
 
@@ -77,8 +95,18 @@ function TripDetails() {
         setError("");
 
         const response = await fetch(
-          `${API_BASE_URL}/trips/passenger/${user.id}/${tripId}`
+          `${API_BASE_URL}/trips/passenger/${user.id}/${tripId}`,
+          {
+            headers: {
+              Authorization: `Bearer ${token}`,
+            },
+          }
         );
+
+        if (response.status === 401 || response.status === 403) {
+          handleSessionExpired();
+          return;
+        }
 
         if (!response.ok) {
           throw new Error(
@@ -187,7 +215,6 @@ function TripDetails() {
 
         {!loading && !error && trip && (
           <div className="space-y-6">
-
             {/* Route summary */}
             <div className="bg-white rounded-2xl shadow-sm p-6">
               <div className="flex flex-wrap justify-between items-center gap-3">
@@ -364,8 +391,7 @@ function TripDetails() {
                   {progressSteps.map((step, index) => {
                     const completed = Boolean(step.date);
                     const active =
-                      !completed &&
-                      currentStep === index;
+                      !completed && currentStep === index;
 
                     return (
                       <div key={step.label} className="flex gap-4">

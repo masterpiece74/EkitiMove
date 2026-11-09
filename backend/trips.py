@@ -1,6 +1,8 @@
-from fastapi import APIRouter, HTTPException
+
+from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 from database import get_connection
+from auth import get_current_user
 
 
 router = APIRouter(
@@ -10,7 +12,6 @@ router = APIRouter(
 
 
 class TripRequest(BaseModel):
-    user_id: int
     route_id: int
     pickup_point_id: int
     fare_period_id: int
@@ -22,7 +23,18 @@ class TripRequest(BaseModel):
 # =========================================
 
 @router.post("/")
-def request_trip(data: TripRequest):
+def request_trip(
+    data: TripRequest,
+    current_user: dict = Depends(get_current_user)
+):
+
+    if current_user["role"] != "Passenger":
+        raise HTTPException(
+            status_code=403,
+            detail="Only passengers can request trips."
+        )
+
+    user_id = current_user["id"]
 
     conn = get_connection()
 
@@ -36,7 +48,7 @@ def request_trip(data: TripRequest):
                 FROM passenger_profiles
                 WHERE user_id = %s
                 """,
-                (data.user_id,)
+                (user_id,)
             )
 
             passenger = cursor.fetchone()
@@ -164,7 +176,6 @@ def request_trip(data: TripRequest):
 
     except Exception as error:
         conn.rollback()
-
         print("Trip request error:", error)
 
         raise HTTPException(
@@ -182,14 +193,28 @@ def request_trip(data: TripRequest):
 # =========================================
 
 @router.get("/passenger/{user_id}")
-def get_passenger_trips(user_id: int):
+def get_passenger_trips(
+    user_id: int,
+    current_user: dict = Depends(get_current_user)
+):
+
+    if current_user["role"] != "Passenger":
+        raise HTTPException(
+            status_code=403,
+            detail="Only passengers can access passenger trips."
+        )
+
+    if current_user["id"] != user_id:
+        raise HTTPException(
+            status_code=403,
+            detail="You cannot access another passenger's trips."
+        )
 
     conn = get_connection()
 
     try:
         with conn.cursor() as cursor:
 
-            # FIND PASSENGER PROFILE
             cursor.execute(
                 """
                 SELECT id
@@ -250,19 +275,16 @@ def get_passenger_trips(user_id: int):
             trips = []
 
             for trip in trip_rows:
-
-                trips.append(
-                    {
-                        "id": trip[0],
-                        "fare": trip[1],
-                        "status": trip[2],
-                        "requested_at": trip[3],
-                        "from_location": trip[4],
-                        "to_location": trip[5],
-                        "transport": trip[6],
-                        "pickup_point": trip[7]
-                    }
-                )
+                trips.append({
+                    "id": trip[0],
+                    "fare": trip[1],
+                    "status": trip[2],
+                    "requested_at": trip[3],
+                    "from_location": trip[4],
+                    "to_location": trip[5],
+                    "transport": trip[6],
+                    "pickup_point": trip[7]
+                })
 
             return trips
 
@@ -270,7 +292,6 @@ def get_passenger_trips(user_id: int):
         raise
 
     except Exception as error:
-
         print("Get passenger trips error:", error)
 
         raise HTTPException(
@@ -281,13 +302,30 @@ def get_passenger_trips(user_id: int):
     finally:
         conn.close()
 
+
 # =========================================
 # GET ONE TRIP WITH FULL DETAILS
 # GET /trips/passenger/{user_id}/{trip_id}
 # =========================================
 
 @router.get("/passenger/{user_id}/{trip_id}")
-def get_passenger_trip_details(user_id: int, trip_id: int):
+def get_passenger_trip_details(
+    user_id: int,
+    trip_id: int,
+    current_user: dict = Depends(get_current_user)
+):
+
+    if current_user["role"] != "Passenger":
+        raise HTTPException(
+            status_code=403,
+            detail="Only passengers can access passenger trip details."
+        )
+
+    if current_user["id"] != user_id:
+        raise HTTPException(
+            status_code=403,
+            detail="You cannot access another passenger's trip."
+        )
 
     conn = get_connection()
 
@@ -398,7 +436,6 @@ def get_passenger_trip_details(user_id: int, trip_id: int):
         raise
 
     except Exception as error:
-
         print("Get trip details error:", error)
 
         raise HTTPException(
