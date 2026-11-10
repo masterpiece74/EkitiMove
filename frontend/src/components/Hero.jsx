@@ -1,37 +1,105 @@
-import { useEffect, useState } from "react";
+
+import { useRef, useState } from "react";
 
 function Hero() {
-  const videos = ["/car1.mp4", "/car2.mp4", "/car3.mp4", "/car4.mp4"];
+  const videos = [
+    "/car1.mp4",
+    "/car2.mp4",
+    "/car3.mp4",
+    "/car4.mp4",
+  ];
 
-  const [currentVideo, setCurrentVideo] = useState(0);
+  const [slots, setSlots] = useState([
+    videos[0],
+    videos[1],
+  ]);
 
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setCurrentVideo((prev) => (prev + 1) % videos.length);
-    }, 8000);
+  const [activeSlot, setActiveSlot] = useState(0);
+  const [activeIndex, setActiveIndex] = useState(0);
 
-    return () => clearInterval(interval);
-  }, []);
+  const videoRefs = useRef([]);
+  const waitingRef = useRef(false);
+  const switchingRef = useRef(false);
+
+  const switchToNext = async () => {
+    if (switchingRef.current) return;
+
+    const nextSlot = 1 - activeSlot;
+    const nextVideo = videoRefs.current[nextSlot];
+
+    if (!nextVideo || nextVideo.readyState < 3) {
+      waitingRef.current = true;
+      return;
+    }
+
+    switchingRef.current = true;
+
+    try {
+      await nextVideo.play();
+
+      const nextIndex = (activeIndex + 1) % videos.length;
+
+      setActiveSlot(nextSlot);
+      setActiveIndex(nextIndex);
+
+      // Prepare the following video in the background.
+      setSlots((previous) => {
+        const updated = [...previous];
+        updated[activeSlot] =
+          videos[(nextIndex + 1) % videos.length];
+
+        return updated;
+      });
+
+      waitingRef.current = false;
+    } catch (error) {
+      console.error("Unable to play next background video:", error);
+    } finally {
+      switchingRef.current = false;
+    }
+  };
+
+  const handleVideoEnded = () => {
+    waitingRef.current = true;
+    switchToNext();
+  };
+
+  const handleVideoReady = (slot) => {
+    if (slot !== activeSlot && waitingRef.current) {
+      switchToNext();
+    }
+  };
 
   return (
     <section className="relative min-h-[600px] overflow-hidden flex items-center justify-center">
 
-      {/* Background Video */}
-      <video
-        key={videos[currentVideo]}
-        src={videos[currentVideo]}
-        autoPlay
-        muted
-        loop
-        playsInline
-        className="absolute inset-0 w-full h-full object-cover"
-      />
+      {/* Background Videos */}
+      {slots.map((video, slot) => (
+        <video
+          key={slot}
+          ref={(element) => {
+            videoRefs.current[slot] = element;
+          }}
+          src={video}
+          autoPlay={slot === activeSlot}
+          muted
+          playsInline
+          preload="auto"
+          onEnded={slot === activeSlot ? handleVideoEnded : undefined}
+          onCanPlay={() => handleVideoReady(slot)}
+          className={`absolute inset-0 w-full h-full object-cover transition-opacity duration-700 ${
+            slot === activeSlot
+              ? "opacity-100 z-0"
+              : "opacity-0 -z-10"
+          }`}
+        />
+      ))}
 
       {/* Dark Overlay */}
-      <div className="absolute inset-0 bg-black/50"></div>
+      <div className="absolute inset-0 bg-black/50 z-10"></div>
 
       {/* Text on top of video */}
-      <div className="relative z-10 max-w-7xl mx-auto px-6 text-center text-white">
+      <div className="relative z-20 max-w-7xl mx-auto px-6 text-center text-white">
 
         <h1 className="text-5xl md:text-6xl font-bold">
           Move Around Ekiti With Ease
